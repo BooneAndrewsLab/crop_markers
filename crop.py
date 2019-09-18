@@ -91,12 +91,15 @@ def main():
     image_hash = image_hash.hexdigest()
 
     # Path where we'll save image measurements (min, max, std, ...)
-    measurements_path = os.path.abspath(os.path.join(args.output_folder, '%s_measurements' % screen_name, image_hash))
-    os.makedirs(os.path.dirname(measurements_path), exist_ok=True)
+    img_meas_path = os.path.abspath(os.path.join(args.output_folder, '%s_image_measurements' % screen_name, image_hash))
+    crop_meas_path = os.path.abspath(os.path.join(args.output_folder, '%s_crop_measurements' % screen_name, image_hash))
 
-    print("Image measurements are saved in hash '%s'" % measurements_path)
+    os.makedirs(os.path.dirname(img_meas_path), exist_ok=True)
+    os.makedirs(os.path.dirname(crop_meas_path), exist_ok=True)
 
-    with open(measurements_path, 'w') as meas_file:
+    print("Image measurements are saved in hash '%s'" % img_meas_path)
+
+    with open(img_meas_path, 'w') as img_meas_file, open(crop_meas_path, 'w') as crop_meas_file:
         for rel_image_path in args.images:
             image_path = os.path.abspath(rel_image_path)  # normalize path, useful later
             cells = image_coordinates.get(image_path, [])
@@ -109,11 +112,18 @@ def main():
 
             img = imread(image_path, plugin='tifffile')
             cropped = crop_image(img, cropped_path, cells)
+            for crop, crop_coordinates in zip(cropped, cells):
+                row_common = (rel_image_path, ) + crop_coordinates
+                for values in get_image_measurements(crop):
+                    # noinspection PyTypeChecker
+                    crop_meas_file.write(','.join(map(str, row_common + values)) + '\n')
+
             del cropped
 
             for values in get_image_measurements(img):
-                meas_file.write('%s,' % (rel_image_path, ))
-                meas_file.write(','.join(map(str, values)) + '\n')
+                # noinspection PyTypeChecker
+                row = (rel_image_path, ) + values
+                img_meas_file.write(','.join(map(str, row)) + '\n')
 
 
 if __name__ == '__main__':
