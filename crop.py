@@ -1,3 +1,4 @@
+import csv
 import hashlib
 import os
 import pathlib
@@ -5,6 +6,17 @@ from collections import defaultdict
 
 import numpy as np
 from skimage.io import imread
+
+
+def filter_coordinates(im_shape, coordinates, size):
+    h, w = im_shape
+
+    filtered = []
+    for x, y in coordinates:
+        if y - size > 0 and y + size < h and x - size > 0 and x + size < w:
+            filtered.append((x, y))
+
+    return filtered
 
 
 def crop_image(im, cropped_path, coordinates, crop_size=64):
@@ -23,18 +35,17 @@ def crop_image(im, cropped_path, coordinates, crop_size=64):
     :rtype: np.ndarray
     """
     radius = crop_size // 2
-
     channels = im.shape[0] if len(im.shape) > 2 else 1  # Get number of channels in this image
 
     fp = np.memmap(cropped_path, dtype=im.dtype, mode='w+', shape=(len(coordinates), channels, crop_size, crop_size))
     for idx, coord in enumerate(coordinates):
-        y, x = coord
+        x, y = coord
 
         # Handle also images with only one channel so that the cropped files are always 4D
         if channels == 1:
-            fp[idx, 0, :, :] = im[x - radius:x + radius, y - radius:y + radius]
+            fp[idx, 0, :, :] = im[y - radius:y + radius, x - radius:x + radius]
         else:
-            fp[idx, :, :, :] = im[:, x - radius:x + radius, y - radius:y + radius]
+            fp[idx, :, :, :] = im[:, y - radius:y + radius, x - radius:x + radius]
     fp.flush()  # Write data to disk
 
     return fp
@@ -55,6 +66,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
+    parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
 
     parser.add_argument("cell_coordinates", help="File containing location (image, x, y) of cells")
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
@@ -99,7 +111,11 @@ def main():
 
     print("Image measurements are saved in hash '%s'" % img_meas_path)
 
-    with open(img_meas_path, 'w') as img_meas_file, open(crop_meas_path, 'w') as crop_meas_file:
+    with open(img_meas_path, 'w', newline='') as img_meas_file, \
+            open(crop_meas_path, 'w', newline='') as crop_meas_file:
+        img_meas_writer = csv.writer(img_meas_file)
+        crop_meas_writer = csv.writer(crop_meas_file)
+
         for rel_image_path in args.images:
             image_path = os.path.abspath(rel_image_path)  # normalize path, useful later
             cells = image_coordinates.get(image_path, [])
@@ -108,22 +124,27 @@ def main():
 
             os.makedirs(os.path.dirname(cropped_path), exist_ok=True)
 
-            print("Cropping %d cells from '%s' to '%s'" % (len(cells), image_path, cropped_path))
-
             img = imread(image_path, plugin='tifffile')
-            cropped = crop_image(img, cropped_path, cells)
-            for crop, crop_coordinates in zip(cropped, cells):
-                row_common = (rel_image_path, ) + crop_coordinates
+
+            coords = filter_coordinates(img.shape[-2:], cells, args.crop_size // 2)
+
+            print("Cropping %d (%d excluded) cells from %s to '%s'" % (
+                len(coords), len(cells) - len(coords), image_path, cropped_path))
+
+            cropped = crop_image(img, cropped_path, coords, crop_size=args.crop_size)
+            cell_idx = 0
+            for crop, crop_coordinates in zip(cropped, coords):
+                row_common = (rel_image_path, cell_idx) + crop_coordinates
                 for values in get_image_measurements(crop):
                     # noinspection PyTypeChecker
-                    crop_meas_file.write(','.join(map(str, row_common + values)) + '\n')
+                    crop_meas_writer.writerow(row_common + values)
+                cell_idx += 1
 
             del cropped
 
             for values in get_image_measurements(img):
                 # noinspection PyTypeChecker
-                row = (rel_image_path, ) + values
-                img_meas_file.write(','.join(map(str, row)) + '\n')
+                img_meas_writer.writerow((rel_image_path,) + values)
 
 
 if __name__ == '__main__':
