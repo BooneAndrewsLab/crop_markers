@@ -67,6 +67,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
     parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
+    parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
 
     parser.add_argument("cell_coordinates", help="File containing location (image, x, y) of cells")
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
@@ -81,7 +82,11 @@ def main():
     num_cells = 0
     with open(args.cell_coordinates) as cell_coordinates:
         for line in cell_coordinates:
-            image, cell_x, cell_y = line.strip().split(',')
+            if args.multi_field_images:
+                image, field, cell_x, cell_y = line.strip().split(',')
+            else:
+                image, cell_x, cell_y = line.strip().split(',')
+
             if not screen_name:  # First image, lets check a few things
                 screen_name = image.split(os.path.sep)[0]
 
