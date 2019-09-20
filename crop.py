@@ -131,6 +131,9 @@ def main():
             print("Cropping %d (%d excluded) cells from %s to '%s'" % (
                 len(coords), len(cells) - len(coords), image_path, cropped_path))
 
+            if not coords:  # Empty image, crop would throw an exception
+                continue
+
             cropped = crop_image(img, cropped_path, coords, crop_size=args.crop_size)
             cell_idx = 0
             for crop, crop_coordinates in zip(cropped, coords):
