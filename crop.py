@@ -62,15 +62,17 @@ def get_image_measurements(im):
 
 
 def parse_coordinates(args):
-    image_coordinates = defaultdict(list)
+    image_coordinates = defaultdict(lambda: defaultdict(list))
     screen_name = None
     num_cells = 0
 
     with open(args.cell_coordinates, newline='') as cell_coordinates:
         for row in csv.reader(cell_coordinates):
-            image = row[0]
-            if not screen_name:  # First image, lets check a few things
-                screen_name = image.split(os.path.sep)[0]
+            image = pathlib.Path(row[0])
+
+            # If it's a relative path the first folder should be screen name
+            if not image.is_absolute() and not screen_name:
+                screen_name = image.parts[0]
 
             if args.multi_field_images:
                 field, cell_x, cell_y = map(int, row[1:])
@@ -78,8 +80,10 @@ def parse_coordinates(args):
                 field = 0
                 cell_x, cell_y = map(int, row[1:])
 
-            image = os.path.abspath(os.path.join(args.root_folder, image))
-            image_coordinates[image].append((field, cell_x, cell_y))
+            if not image.is_absolute():  # Convert to absolute path
+                image = args.root_folder / image
+
+            image_coordinates[image.resolve()][field].append((cell_x, cell_y))
             num_cells += 1
 
     return image_coordinates, screen_name, num_cells
@@ -99,6 +103,8 @@ def main():
     parser.add_argument("images", nargs="+", help="List of input images")
     args = parser.parse_args()
 
+    output_folder = pathlib.Path(args.output_folder).resolve()
+
     image_coordinates, screen_name, num_cells = parse_coordinates(args)
 
     # This should exist if there is at least one row in coordinates file
@@ -114,52 +120,66 @@ def main():
         image_hash.update(image.encode())
     image_hash = image_hash.hexdigest()
 
-    # Path where we'll save image measurements (min, max, std, ...)
-    img_meas_path = os.path.abspath(os.path.join(args.output_folder, '%s_image_measurements' % screen_name, image_hash))
-    crop_meas_path = os.path.abspath(os.path.join(args.output_folder, '%s_crop_measurements' % screen_name, image_hash))
+    def mfile(suffix):
+        """ Create and open a measurements file with given suffix
 
-    os.makedirs(os.path.dirname(img_meas_path), exist_ok=True)
-    os.makedirs(os.path.dirname(crop_meas_path), exist_ok=True)
+        :param suffix: folder suffix
+        :type suffix: str
+        :return: opened file for writing with csv
+        """
+        mf = output_folder / (screen_name + suffix) / image_hash
+        mf.parent.mkdir(parents=True, exist_ok=False)
+        return mf.open('w', newline='')
 
-    print("Image measurements are saved in hash '%s'" % img_meas_path)
+    print("Measurements are saved in hash '%s'" % image_hash)
 
-    with open(img_meas_path, 'w', newline='') as img_meas_file, \
-            open(crop_meas_path, 'w', newline='') as crop_meas_file:
+    with mfile('_image_measurements') as img_meas_file, mfile('_crop_measurements') as crop_meas_file:
         img_meas_writer = csv.writer(img_meas_file)
         crop_meas_writer = csv.writer(crop_meas_file)
 
         for rel_image_path in args.images:
             image_path = os.path.abspath(rel_image_path)  # normalize path, useful later
-            cells = image_coordinates.get(image_path, [])
+            cells = image_coordinates.get(image_path, {})
             cropped_path = pathlib.Path(os.path.abspath(image_path.replace(args.root_folder, args.output_folder)))
             cropped_path = cropped_path.with_suffix('.dat')
 
-            os.makedirs(os.path.dirname(cropped_path), exist_ok=True)
+            os.makedirs(cropped_path.parent, exist_ok=True)
 
             img = imread(image_path, plugin='tifffile')
 
-            coords = filter_coordinates(img.shape[-2:], cells, args.crop_size // 2)
+            for field, field_cells in cells.items():
+                cropped_field_path = cropped_path
+                """ In multi field images the images are stacked as:
+                f1-gfp,f1-rfp,f2-gfp,f2-rfp,...
+                """
+                field_idx = field * 2
 
-            print("Cropping %d (%d excluded) cells from %s to '%s'" % (
-                len(coords), len(cells) - len(coords), image_path, cropped_path))
+                if args.multi_field_images:  # Adjust crop name if multi-field
+                    cropped_field_path = cropped_field_path.with_name(
+                        cropped_field_path.name.replace('000.dat', '00%d.dat' % (field + 1)))
 
-            if not coords:  # Empty image, crop would throw an exception
-                continue
+                coords = filter_coordinates(img.shape[-2:], field_cells, args.crop_size // 2)
 
-            cropped = crop_image(img, cropped_path, coords, crop_size=args.crop_size)
-            cell_idx = 0
-            for crop, crop_coordinates in zip(cropped, coords):
-                row_common = (pathlib.Path(rel_image_path).with_suffix('.dat'), cell_idx) + crop_coordinates
-                for values in get_image_measurements(crop):
+                print("Cropping %d (%d excluded) cells from %s to '%s'" % (
+                    len(coords), len(field_cells) - len(coords), image_path, cropped_field_path))
+
+                if not coords:  # Empty image, crop would throw an exception
+                    continue
+
+                cropped = crop_image(img[field_idx:field_idx + 2], cropped_field_path, coords, crop_size=args.crop_size)
+                cell_idx = 0
+                for crop, crop_coordinates in zip(cropped, coords):
+                    row_common = (pathlib.Path(rel_image_path).with_suffix('.dat'), cell_idx) + crop_coordinates
+                    for values in get_image_measurements(crop):
+                        # noinspection PyTypeChecker
+                        crop_meas_writer.writerow(row_common + values)
+                    cell_idx += 1
+
+                del cropped
+
+                for values in get_image_measurements(img):
                     # noinspection PyTypeChecker
-                    crop_meas_writer.writerow(row_common + values)
-                cell_idx += 1
-
-            del cropped
-
-            for values in get_image_measurements(img):
-                # noinspection PyTypeChecker
-                img_meas_writer.writerow((rel_image_path,) + values)
+                    img_meas_writer.writerow((rel_image_path,) + values)
 
 
 if __name__ == '__main__':
