@@ -61,6 +61,30 @@ def get_image_measurements(im):
             yield idx, np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch)
 
 
+def parse_coordinates(args):
+    image_coordinates = defaultdict(list)
+    screen_name = None
+    num_cells = 0
+
+    with open(args.cell_coordinates, newline='') as cell_coordinates:
+        for row in csv.reader(cell_coordinates):
+            image = row[0]
+            if not screen_name:  # First image, lets check a few things
+                screen_name = image.split(os.path.sep)[0]
+
+            if args.multi_field_images:
+                field, cell_x, cell_y = map(int, row[1:])
+            else:
+                field = 0
+                cell_x, cell_y = map(int, row[1:])
+
+            image = os.path.abspath(os.path.join(args.root_folder, image))
+            image_coordinates[image].append((field, cell_x, cell_y))
+            num_cells += 1
+
+    return image_coordinates, screen_name, num_cells
+
+
 def main():
     import argparse
 
@@ -75,24 +99,7 @@ def main():
     parser.add_argument("images", nargs="+", help="List of input images")
     args = parser.parse_args()
 
-    screen_name = None
-
-    # Read coordinates group them together per image
-    image_coordinates = defaultdict(list)
-    num_cells = 0
-    with open(args.cell_coordinates) as cell_coordinates:
-        for line in cell_coordinates:
-            if args.multi_field_images:
-                image, field, cell_x, cell_y = line.strip().split(',')
-            else:
-                image, cell_x, cell_y = line.strip().split(',')
-
-            if not screen_name:  # First image, lets check a few things
-                screen_name = image.split(os.path.sep)[0]
-
-            image = os.path.abspath(os.path.join(args.root_folder, image))
-            image_coordinates[image].append((int(cell_x), int(cell_y)))
-            num_cells += 1
+    image_coordinates, screen_name, num_cells = parse_coordinates(args)
 
     # This should exist if there is at least one row in coordinates file
     if not screen_name:
@@ -142,7 +149,7 @@ def main():
             cropped = crop_image(img, cropped_path, coords, crop_size=args.crop_size)
             cell_idx = 0
             for crop, crop_coordinates in zip(cropped, coords):
-                row_common = (rel_image_path, cell_idx) + crop_coordinates
+                row_common = (pathlib.Path(rel_image_path).with_suffix('.dat'), cell_idx) + crop_coordinates
                 for values in get_image_measurements(crop):
                     # noinspection PyTypeChecker
                     crop_meas_writer.writerow(row_common + values)
