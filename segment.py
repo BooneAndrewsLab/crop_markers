@@ -65,6 +65,15 @@ def Watershed_MRF(Iin, I_MM):
     return LabWater
 
 
+def add_name_suffix(path, suffix):
+    return path.with_name(path.stem + suffix).with_suffix(path.suffix)
+
+
+def filter_coordinate(im_shape, x, y, size):
+    h, w = im_shape
+    return y - size > 0 and y + size < h and x - size > 0 and x + size < w
+
+
 def filter_coordinates(im_shape, coordinates, size):
     """ Filter a list of coordinates, exclude items too close to border to avoid slicing exceptions
 
@@ -137,6 +146,61 @@ def get_image_measurements(im):
             yield idx, np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch)
 
 
+class Segmentation:
+    def __init__(self, image_path, cropped_base):
+        self.img = imread(str(image_path), plugin='tifffile')
+        red = self.img[1]  # rfp
+
+        print("Segmenting %s" % image_path)
+        segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
+
+        print("Watersheding %s" % image_path)
+        watershed = Watershed_MRF(red, segmented)
+        labeled, c = mh.labeled.relabel(watershed)
+        bboxes = mh.labeled.bbox(labeled)
+
+        useful_cells = []  # are the ones that are far away from the border to crop
+
+        for cell_num in range(1, c + 1):
+            bbox = bboxes[cell_num]
+            height = bbox[1] - bbox[0]
+            width = bbox[3] - bbox[2]
+
+            y = bbox[0] + (height // 2)
+            x = bbox[1] + (width // 2)
+
+            if filter_coordinate(red.shape, x, y, 32):
+                useful_cells.append(cell_num)
+
+        print(c, len(useful_cells))
+        return
+
+        crops_nomask = self.init_crop(cropped_base, '_nomask', c)
+        crops_mask = self.init_crop(cropped_base, '_masked', c)
+        crops_maskerode = self.init_crop(cropped_base, '_maskederode', c)
+
+        for cell_num in range(1, c + 1):
+            bbox = bboxes[cell_num]
+
+
+            # masked = self.img.copy()
+            # masked[:, labeled != cell_num] = 0
+            #
+            # masked2 = self.img.copy()
+            # masked2[:, binary_erosion(labeled != cell_num, iterations=3, structure=disk(1))] = 0
+
+            # gfp_nomask = make_crop(image, 1, bbox)
+            # gfp_mask = make_crop(masked, 1, bbox)
+            # gfp_maskblur = make_crop(masked2, 1, bbox)
+
+        crops_nomask.flush()
+        crops_mask.flush()
+        crops_maskerode.flush()
+
+    def init_crop(self, base, suffix, cells):
+        return np.memmap(add_name_suffix(base, suffix), dtype=self.img.dtype, mode='w+', shape=(cells, 2, 64, 64))
+
+
 def main():
     import argparse
 
@@ -145,8 +209,8 @@ def main():
     parser.add_argument("-m", "--save-masked-crop", help="Save masked cropped cells, background is set to 0")
     parser.add_argument("-M", "--save-mask", help="Save labelled cells")
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
-    parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
-    parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
+    # parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
+    # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
 
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
     parser.add_argument("images", nargs="+", help="List of input images")
@@ -196,31 +260,7 @@ def main():
 
             print("Processing %s" % image_path)
 
-            img = imread(str(image_path), plugin='tifffile')
-            red = img[1]  # rfp
-
-            print("Segmenting %s" % image_path)
-
-            segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
-            watershed = Watershed_MRF(red, segmented)
-
-            sizes = mh.labeled.labeled_size(watershed)
-            labeled, c = mh.labeled.relabel(labeled)
-            borders = mh.labeled.borders(labeled)
-            bboxes = mh.labeled.bbox(labeled)
-
-            for cell_num in range(1, c + 1):
-                bbox = bboxes[cell_num]
-
-                masked = img.copy()
-                masked[:, labeled != cell_num] = 0
-
-                masked2 = img.copy()
-                masked2[:, binary_erosion(labeled != cell_num, iterations=3, structure=disk(1))] = 0
-
-                gfp_nomask = make_crop(image, 1, bbox)
-                gfp_mask = make_crop(masked, 1, bbox)
-                gfp_maskblur = make_crop(masked2, 1, bbox)
+            seg = Segmentation(image_path, cropped_base)
 
             # for field, cells in cells_in_fields.items():
             #     cropped_path = cropped_base
