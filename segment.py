@@ -8,7 +8,8 @@ import numpy as np
 import scipy.ndimage as nd
 import segmentation
 from scipy.ndimage import binary_erosion
-from skimage.io import imread
+from skimage.io import imread, imsave
+from skimage.measure import regionprops
 from skimage.morphology import disk
 
 
@@ -69,64 +70,13 @@ def add_name_suffix(path, suffix):
     return path.with_name(path.stem + suffix).with_suffix(path.suffix)
 
 
-def filter_coordinate(im_shape, x, y, size):
+def filter_coordinate(im_shape, y, x, size):
     h, w = im_shape
     return y - size > 0 and y + size < h and x - size > 0 and x + size < w
 
 
-def filter_coordinates(im_shape, coordinates, size):
-    """ Filter a list of coordinates, exclude items too close to border to avoid slicing exceptions
-
-    :param im_shape: width and height of input image
-    :param coordinates: list of x,y coordinates of single cells in this image
-    :param size: crop size as "radius", half of one side
-    :type im_shape: tuple[int, int]
-    :type coordinates: list[tuple[int, int]]
-    :type size: int
-    :return: coordinates that are far enough from the border for cropping
-    :rtype: list[tuple[int, int]]
-    """
-    h, w = im_shape
-
-    filtered = []
-    for x, y in coordinates:
-        if y - size > 0 and y + size < h and x - size > 0 and x + size < w:
-            filtered.append((x, y))
-
-    return filtered
-
-
-def crop_image(im, cropped_path, coordinates, crop_size=64):
-    """ Crop list of cells from image, save it to disk and return the data.
-    Remember to delete returned reference for proper garbage collection just in case.
-
-    :param im: array representation of an image
-    :param cropped_path: where to save the cropped data
-    :param coordinates: list of (x,y) coordinates (centre points) to crop
-    :param crop_size: width and lenght of each crop
-    :type im: np.ndarray
-    :type cropped_path: str
-    :type coordinates: list[tuple[int, int]]
-    :type crop_size: int
-    :return: cropped cells of shape (num_cells, channels, radius*2, radius*2)
-    :rtype: np.ndarray
-    """
-    radius = crop_size // 2
-    channels = im.shape[0] if len(im.shape) > 2 else 1  # Get number of channels in this image
-
-    # Fastest way to save arbitrarily shaped data
-    fp = np.memmap(cropped_path, dtype=im.dtype, mode='w+', shape=(len(coordinates), channels, crop_size, crop_size))
-    for idx, coord in enumerate(coordinates):
-        x, y = coord
-
-        # Handle also images with only one channel so that the cropped files are always 4D
-        if channels == 1:
-            fp[idx, 0, :, :] = im[y - radius:y + radius, x - radius:x + radius]
-        else:
-            fp[idx, :, :, :] = im[:, y - radius:y + radius, x - radius:x + radius]
-    fp.flush()  # Write data to disk
-
-    return fp
+def center(bbox):
+    return bbox[2] + ((bbox[3] - bbox[2]) // 2), bbox[0] + ((bbox[1] - bbox[0]) // 2)
 
 
 def get_image_measurements(im):
@@ -137,65 +87,94 @@ def get_image_measurements(im):
     :return: min, max, mean, std and variance for each channel
     :rtype: tuple[int, float, float, float, float, float]
     """
-    channels = im.shape[0] if len(im.shape) > 2 else 1  # Get number of channels in this image
-
-    if channels == 1:
-        yield 0, np.amin(im), np.amax(im), np.mean(im), np.std(im), np.var(im)
-    else:
-        for idx, ch in enumerate(im):
-            yield idx, np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch)
+    for idx, ch in enumerate(im):
+        yield idx, np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch)
 
 
 class Segmentation:
-    def __init__(self, image_path, cropped_base):
+    def __init__(self, image_path, cropped_base, meas_writer, output_folder):
+        self.image_path = image_path
         self.img = imread(str(image_path), plugin='tifffile')
         red = self.img[1]  # rfp
 
         print("Segmenting %s" % image_path)
-        segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
+        self.segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
 
         print("Watersheding %s" % image_path)
-        watershed = Watershed_MRF(red, segmented)
-        labeled, c = mh.labeled.relabel(watershed)
-        bboxes = mh.labeled.bbox(labeled)
+        self.watershed = Watershed_MRF(red, self.segmented) - 1
+        self.filter_labels()
 
-        useful_cells = []  # are the ones that are far away from the border to crop
+        red_props = regionprops(self.watershed, intensity_image=self.red)
+        green_props = regionprops(self.watershed, intensity_image=self.green)
 
-        for cell_num in range(1, c + 1):
-            bbox = bboxes[cell_num]
-            height = bbox[1] - bbox[0]
-            width = bbox[3] - bbox[2]
+        imsave(add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff'), self.watershed.astype(np.int16))
 
-            y = bbox[0] + (height // 2)
-            x = bbox[1] + (width // 2)
+        c = len(red_props)
 
-            if filter_coordinate(red.shape, x, y, 32):
-                useful_cells.append(cell_num)
-
-        print(c, len(useful_cells))
-        return
+        if not c:
+            print("Skipping empty image %s" % image_path)
+            return
 
         crops_nomask = self.init_crop(cropped_base, '_nomask', c)
         crops_mask = self.init_crop(cropped_base, '_masked', c)
         crops_maskerode = self.init_crop(cropped_base, '_maskederode', c)
 
-        for cell_num in range(1, c + 1):
-            bbox = bboxes[cell_num]
+        idx = 0
+        for pred, pgreen in zip(red_props, green_props):
+            x, y = map(int, pred.centroid)
 
+            mask = self.watershed != pred.label
+            crops_nomask[idx, :, :, :] = self.make_crop(x, y)
+            crops_mask[idx, :, :, :] = self.make_crop(x, y, mask)
+            crops_maskerode[idx, :, :, :] = self.make_crop(x, y, binary_erosion(mask, iterations=3, structure=disk(1)))
 
-            # masked = self.img.copy()
-            # masked[:, labeled != cell_num] = 0
-            #
-            # masked2 = self.img.copy()
-            # masked2[:, binary_erosion(labeled != cell_num, iterations=3, structure=disk(1))] = 0
-
-            # gfp_nomask = make_crop(image, 1, bbox)
-            # gfp_mask = make_crop(masked, 1, bbox)
-            # gfp_maskblur = make_crop(masked2, 1, bbox)
+            row_common = (cropped_base.relative_to(output_folder), idx, x, y)
+            for prop, channel in zip((pgreen, pred), (0, 1)):
+                ch = crops_nomask[idx, channel, :, :]
+                meas_writer.writerow(
+                    row_common + (channel,
+                                  np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch),
+                                  prop.area) + prop.centroid + prop.bbox + (
+                        prop.bbox_area, prop.eccentricity, prop.extent, prop.major_axis_length, prop.max_intensity,
+                        prop.mean_intensity, prop.min_intensity, prop.minor_axis_length, prop.perimeter, prop.solidity,
+                        prop.area / prop.perimeter, prop.major_axis_length / prop.minor_axis_length
+                    ))
+                # 'path', 'cell_index', 'row', 'column', 'channel', 'crop_min', 'crop_max', 'crop_mean', 'crop_std', 'crop_var', 'area', 'centroid_row', 'centroid_column', 'bbox_min_row', 'bbox_min_col', 'bbox_max_row', 'bbox_max_col', 'bbox_area', 'eccentricity', 'extent', 'major_axis_length', 'max_intensity', 'mean_intensity', 'min_intensity', 'minor_axis_length', 'perimeter', 'solidity'
+            idx += 1
 
         crops_nomask.flush()
         crops_mask.flush()
         crops_maskerode.flush()
+
+        del crops_nomask
+        del crops_mask
+        del crops_maskerode
+
+    @property
+    def green(self):
+        return self.img[0]
+
+    @property
+    def red(self):
+        return self.img[1]
+
+    def filter_labels(self):
+        red_props = regionprops(self.watershed, intensity_image=self.red)
+
+        removed = 0
+        for prop in red_props:
+            if not filter_coordinate(self.red.shape, *prop.centroid, 32):
+                self.watershed[self.watershed == prop.label] = 0
+                removed += 1
+        print("Removed %d bad cells" % removed)
+
+    def make_crop(self, y, x, mask=None, size=32):
+        img = self.img
+        if mask is not None:
+            img = self.img.copy()
+            img[:, mask] = 0
+
+        return img[:, y - size:y + size, x - size:x + size]
 
     def init_crop(self, base, suffix, cells):
         return np.memmap(add_name_suffix(base, suffix), dtype=self.img.dtype, mode='w+', shape=(cells, 2, 64, 64))
@@ -260,7 +239,11 @@ def main():
 
             print("Processing %s" % image_path)
 
-            seg = Segmentation(image_path, cropped_base)
+            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder)
+
+            for values in get_image_measurements(seg.img):
+                # noinspection PyTypeChecker
+                img_meas_writer.writerow((image_path.relative_to(args.root_folder),) + values)
 
             # for field, cells in cells_in_fields.items():
             #     cropped_path = cropped_base
