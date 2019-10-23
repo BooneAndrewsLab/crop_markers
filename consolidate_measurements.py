@@ -5,7 +5,11 @@ from pathlib import Path
 
 HEADERS = (
     ('image_measurements', ['path', 'channel', 'px_min', 'px_max', 'px_mean', 'px_std', 'px_var']),
-    ('crop_measurements', ['path', 'cell_idx', 'x', 'y', 'channel', 'px_min', 'px_max', 'px_mean', 'px_std', 'px_var'])
+    ('crop_measurements',
+     ['path', 'cell_index', 'row', 'column', 'channel', 'crop_min', 'crop_max', 'crop_mean', 'crop_std', 'crop_var',
+      'area', 'centroid_row', 'centroid_column', 'bbox_min_row', 'bbox_min_col', 'bbox_max_row', 'bbox_max_col',
+      'bbox_area', 'eccentricity', 'extent', 'major_axis_length', 'max_intensity', 'mean_intensity', 'min_intensity',
+      'minor_axis_length', 'perimeter', 'solidity', 'area_perimeter_ratio', 'axis_length_major_minor_ratio'])
 )
 
 
