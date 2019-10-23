@@ -13,6 +13,7 @@ from skimage.measure import regionprops
 from skimage.morphology import disk
 
 
+# noinspection PyPep8Naming,PyUnresolvedReferences,PyArgumentList
 def Watershed_MRF(Iin, I_MM):
     # ------------------------------------------------------------------------------------ #
     #                                                                                      #
@@ -92,7 +93,9 @@ def get_image_measurements(im):
 
 
 class Segmentation:
-    def __init__(self, image_path, cropped_base, meas_writer, output_folder):
+    def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_size=64):
+        self.crop_size = crop_size
+        self.half_crop_size = crop_size // 2
         self.image_path = image_path
         self.img = imread(str(image_path), plugin='tifffile')
         red = self.img[1]  # rfp
@@ -139,7 +142,6 @@ class Segmentation:
                         prop.mean_intensity, prop.min_intensity, prop.minor_axis_length, prop.perimeter, prop.solidity,
                         prop.area / prop.perimeter, prop.major_axis_length / prop.minor_axis_length
                     ))
-                # 'path', 'cell_index', 'row', 'column', 'channel', 'crop_min', 'crop_max', 'crop_mean', 'crop_std', 'crop_var', 'area', 'centroid_row', 'centroid_column', 'bbox_min_row', 'bbox_min_col', 'bbox_max_row', 'bbox_max_col', 'bbox_area', 'eccentricity', 'extent', 'major_axis_length', 'max_intensity', 'mean_intensity', 'min_intensity', 'minor_axis_length', 'perimeter', 'solidity'
             idx += 1
 
         crops_nomask.flush()
@@ -163,12 +165,13 @@ class Segmentation:
 
         removed = 0
         for prop in red_props:
-            if not filter_coordinate(self.red.shape, *prop.centroid, 32):
+            if not filter_coordinate(self.red.shape, *prop.centroid, self.half_crop_size):
                 self.watershed[self.watershed == prop.label] = 0
                 removed += 1
         print("Removed %d bad cells" % removed)
 
-    def make_crop(self, y, x, mask=None, size=32):
+    def make_crop(self, y, x, mask=None):
+        size = self.half_crop_size
         img = self.img
         if mask is not None:
             img = self.img.copy()
@@ -177,7 +180,8 @@ class Segmentation:
         return img[:, y - size:y + size, x - size:x + size]
 
     def init_crop(self, base, suffix, cells):
-        return np.memmap(add_name_suffix(base, suffix), dtype=self.img.dtype, mode='w+', shape=(cells, 2, 64, 64))
+        return np.memmap(add_name_suffix(base, suffix), dtype=self.img.dtype, mode='w+',
+                         shape=(cells, 2, self.crop_size, self.crop_size))
 
 
 def main():
@@ -188,7 +192,7 @@ def main():
     parser.add_argument("-m", "--save-masked-crop", help="Save masked cropped cells, background is set to 0")
     parser.add_argument("-M", "--save-mask", help="Save labelled cells")
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
-    # parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
+    parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
     # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
 
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
@@ -239,50 +243,11 @@ def main():
 
             print("Processing %s" % image_path)
 
-            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder)
+            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, args.crop_size)
 
             for values in get_image_measurements(seg.img):
                 # noinspection PyTypeChecker
                 img_meas_writer.writerow((image_path.relative_to(args.root_folder),) + values)
-
-            # for field, cells in cells_in_fields.items():
-            #     cropped_path = cropped_base
-            #     field_path = image_path
-            #
-            #     # In multi field images the images are stacked as: f1-gfp,f1-rfp,f2-gfp,f2-rfp,...
-            #     field_index = field * 2
-            #
-            #     if args.multi_field_images:  # Adjust crop name if multi-field
-            #         cropped_path = cropped_path.with_name(
-            #             cropped_path.name.replace('000.dat', '00%d.dat' % (field + 1)))
-            #         field_path = field_path.with_name(
-            #             field_path.name.replace('000.flex', '00%d.flex' % (field + 1)))
-            #
-            #     coords = filter_coordinates(img.shape[-2:], cells, args.crop_size // 2)
-            #
-            #     print("Cropping %d (%d excluded) cells from %s to '%s'" % (
-            #         len(coords), len(cells) - len(coords), field_path, cropped_path))
-            #
-            #     if not coords:  # Empty image, crop would throw an exception
-            #         continue
-            #
-            #     field_image = img[field_index:field_index + 2]
-            #
-            #     cropped = crop_image(field_image, cropped_path, coords, crop_size=args.crop_size)
-            #
-            #     cell_idx = 0
-            #     for crop, crop_coordinates in zip(cropped, coords):
-            #         row_common = (cropped_path.relative_to(output_folder), cell_idx) + crop_coordinates
-            #         for values in get_image_measurements(crop):
-            #             # noinspection PyTypeChecker
-            #             crop_meas_writer.writerow(row_common + values)
-            #         cell_idx += 1
-            #
-            #     del cropped
-            #
-            #     for values in get_image_measurements(field_image):
-            #         # noinspection PyTypeChecker
-            #         img_meas_writer.writerow((field_path.relative_to(args.root_folder),) + values)
 
 
 if __name__ == '__main__':
