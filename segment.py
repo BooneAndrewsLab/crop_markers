@@ -93,24 +93,34 @@ def get_image_measurements(im):
 
 
 class Segmentation:
-    def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_size=64):
+    def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_size=64, ext_label=None):
         self.crop_size = crop_size
         self.half_crop_size = crop_size // 2
         self.image_path = image_path
         self.img = imread(str(image_path), plugin='tifffile')
+        self.watershed = None
         red = self.img[1]  # rfp
 
-        print("Segmenting %s" % image_path)
-        self.segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
+        if ext_label:
+            ext_labeled_path = add_name_suffix(ext_label, '_labeled').with_suffix('.tiff')
+            if ext_labeled_path.exists():
+                print("Found existing segmented watershed %s" % ext_labeled_path)
+                self.watershed = imread(str(ext_labeled_path), plugin='tifffile')
 
-        print("Watersheding %s" % image_path)
-        self.watershed = Watershed_MRF(red, self.segmented) - 1
-        self.filter_labels()
+        if self.watershed is None:
+            labeled_path = add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff')
+
+            print("Segmenting %s" % image_path)
+            segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
+
+            print("Watersheding %s" % image_path)
+            self.watershed = Watershed_MRF(red, segmented) - 1
+            self.filter_labels()
+
+            imsave(labeled_path, self.watershed.astype(np.int16))
 
         red_props = regionprops(self.watershed, intensity_image=self.red)
         green_props = regionprops(self.watershed, intensity_image=self.green)
-
-        imsave(add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff'), self.watershed.astype(np.int16))
 
         c = len(red_props)
 
@@ -194,6 +204,7 @@ def main():
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
     parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
     # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
+    parser.add_argument("-l", "--label-path", help="Use existing labeled images")
 
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
     parser.add_argument("images", nargs="+", help="List of input images")
@@ -202,6 +213,10 @@ def main():
     output_folder = pathlib.Path(args.output_folder).resolve()
     root_folder = pathlib.Path(args.root_folder).resolve()
     images = [pathlib.Path(i).resolve() for i in args.images]
+
+    label_path = None
+    if args.label_path:
+        label_path = pathlib.Path(args.label_path).resolve()
 
     try:
         rel = images[0].relative_to(root_folder)
@@ -241,9 +256,13 @@ def main():
             cropped_base = output_folder / image_path.relative_to(args.root_folder).with_suffix('.dat')
             cropped_base.parent.mkdir(parents=True, exist_ok=True)
 
+            ext_labels = None
+            if label_path:
+                ext_labels = label_path / image_path.relative_to(args.root_folder).with_suffix('.dat')
+
             print("Processing %s" % image_path)
 
-            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, args.crop_size)
+            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, args.crop_size, ext_labels)
 
             for values in get_image_measurements(seg.img):
                 # noinspection PyTypeChecker
