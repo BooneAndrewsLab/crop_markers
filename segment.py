@@ -93,7 +93,8 @@ def get_image_measurements(im):
 
 
 class Segmentation:
-    def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_size=64, ext_label=None):
+    def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_size=64, ext_label=None,
+                 save_measurements=True):
         self.crop_size = crop_size
         self.half_crop_size = crop_size // 2
         self.image_path = image_path
@@ -141,17 +142,19 @@ class Segmentation:
             crops_mask[idx, :, :, :] = self.make_crop(x, y, mask)
             crops_maskerode[idx, :, :, :] = self.make_crop(x, y, binary_erosion(mask, iterations=3, structure=disk(1)))
 
-            row_common = (cropped_base.relative_to(output_folder), idx, x, y)
-            for prop, channel in zip((pgreen, pred), (0, 1)):
-                ch = crops_nomask[idx, channel, :, :]
-                meas_writer.writerow(
-                    row_common + (channel,
-                                  np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch),
-                                  prop.area) + prop.centroid + prop.bbox + (
-                        prop.bbox_area, prop.eccentricity, prop.extent, prop.major_axis_length, prop.max_intensity,
-                        prop.mean_intensity, prop.min_intensity, prop.minor_axis_length, prop.perimeter, prop.solidity,
-                        prop.area / prop.perimeter, prop.major_axis_length / prop.minor_axis_length
-                    ))
+            if save_measurements:
+                row_common = (cropped_base.relative_to(output_folder), idx, x, y)
+                for prop, channel in zip((pgreen, pred), (0, 1)):
+                    ch = crops_nomask[idx, channel, :, :]
+                    meas_writer.writerow(
+                        row_common + (channel,
+                                      np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch),
+                                      prop.area) + prop.centroid + prop.bbox + (
+                            prop.bbox_area, prop.eccentricity, prop.extent, prop.major_axis_length, prop.max_intensity,
+                            prop.mean_intensity, prop.min_intensity, prop.minor_axis_length, prop.perimeter,
+                            prop.solidity,
+                            prop.area / prop.perimeter, prop.major_axis_length / prop.minor_axis_length
+                        ))
             idx += 1
 
         crops_nomask.flush()
@@ -205,6 +208,7 @@ def main():
     parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
     # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
     parser.add_argument("-l", "--label-path", help="Use existing labeled images")
+    parser.add_argument("-n", "--no-measurements", dest='measure', help="Don't save measurements", action='store_false')
 
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
     parser.add_argument("images", nargs="+", help="List of input images")
@@ -262,7 +266,8 @@ def main():
 
             print("Processing %s" % image_path)
 
-            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, args.crop_size, ext_labels)
+            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, args.crop_size, ext_labels,
+                               save_measurements=args.measure)
 
             for values in get_image_measurements(seg.img):
                 # noinspection PyTypeChecker
