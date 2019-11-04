@@ -129,9 +129,9 @@ class Segmentation:
             print("Skipping empty image %s" % image_path)
             return
 
-        crops_nomask = self.init_crop(cropped_base, '_nomask', c)
-        crops_mask = self.init_crop(cropped_base, '_masked', c)
-        crops_maskerode = self.init_crop(cropped_base, '_maskederode', c)
+        crops_nomask = self.init_crop(cropped_base, 'crop%d_nomask' % crop_size, c)
+        crops_mask = self.init_crop(cropped_base, 'crop%d_masked' % crop_size, c)
+        crops_maskerode = self.init_crop(cropped_base, 'crop%d_maskederode' % crop_size, c)
 
         idx = 0
         for pred, pgreen in zip(red_props, green_props):
@@ -214,9 +214,18 @@ def main():
     parser.add_argument("images", nargs="+", help="List of input images")
     args = parser.parse_args()
 
+    images = []
+    for im in args.images:
+        im = pathlib.Path(im).resolve()
+        if im.is_dir():
+            images.extend(im.rglob('*'))
+        else:
+            images.append(im)
+
+    print("Found %d images" % len(images))
+
     output_folder = pathlib.Path(args.output_folder).resolve()
     root_folder = pathlib.Path(args.root_folder).resolve()
-    images = [pathlib.Path(i).resolve() for i in args.images]
 
     label_path = None
     if args.label_path:
