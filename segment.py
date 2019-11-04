@@ -218,7 +218,7 @@ def main():
     for im in args.images:
         im = pathlib.Path(im).resolve()
         if im.is_dir():
-            images.extend(im.rglob('*'))
+            images.extend(im.rglob('*.flex'))
         else:
             images.append(im)
 
