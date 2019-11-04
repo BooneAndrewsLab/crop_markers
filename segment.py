@@ -107,6 +107,7 @@ class Segmentation:
             if ext_labeled_path.exists():
                 print("Found existing segmented watershed %s" % ext_labeled_path)
                 self.watershed = imread(str(ext_labeled_path), plugin='tifffile')
+                self.filter_labels()  # Will fail badly if reducing crop size
 
         if self.watershed is None:
             labeled_path = add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff')
