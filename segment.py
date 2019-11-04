@@ -205,7 +205,7 @@ def main():
     parser.add_argument("-m", "--save-masked-crop", help="Save masked cropped cells, background is set to 0")
     parser.add_argument("-M", "--save-mask", help="Save labelled cells")
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
-    parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64)
+    parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64, type=int)
     # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
     parser.add_argument("-l", "--label-path", help="Use existing labeled images")
     parser.add_argument("-n", "--no-measurements", dest='measure', help="Don't save measurements", action='store_false')
