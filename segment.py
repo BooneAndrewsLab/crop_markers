@@ -242,7 +242,7 @@ def main():
 
     # Generate unique hash for our image set
     image_hash = hashlib.md5()
-    for image in sorted(args.images):
+    for image in sorted(images):
         image_hash.update(image.encode())
     image_hash = image_hash.hexdigest()
 
@@ -263,7 +263,7 @@ def main():
         img_meas_writer = csv.writer(img_meas_file)
         crop_meas_writer = csv.writer(crop_meas_file)
 
-        for image_path in args.images:
+        for image_path in images:
             image_path = pathlib.Path(image_path).resolve()
 
             cropped_base = output_folder / image_path.relative_to(args.root_folder).with_suffix('.dat')
