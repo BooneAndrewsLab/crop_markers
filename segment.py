@@ -101,6 +101,7 @@ class Segmentation:
         self.img = imread(str(image_path), plugin='tifffile')
         self.watershed = None
         red = self.img[1]  # rfp
+        labeled_path = add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff')
 
         if ext_label:
             ext_labeled_path = add_name_suffix(ext_label, '_labeled').with_suffix('.tiff')
@@ -108,9 +109,11 @@ class Segmentation:
                 print("Found existing segmented watershed %s" % ext_labeled_path)
                 self.watershed = imread(str(ext_labeled_path), plugin='tifffile')
 
-        if self.watershed is None:
-            labeled_path = add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff')
+        if self.watershed is None:  # try normal location
+            print("Found existing segmented watershed %s" % labeled_path)
+            self.watershed = imread(str(labeled_path), plugin='tifffile')
 
+        if self.watershed is None:
             print("Segmenting %s" % image_path)
             segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
 
