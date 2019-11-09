@@ -107,7 +107,6 @@ class Segmentation:
             if ext_labeled_path.exists():
                 print("Found existing segmented watershed %s" % ext_labeled_path)
                 self.watershed = imread(str(ext_labeled_path), plugin='tifffile')
-                self.filter_labels()  # Will fail badly if reducing crop size
 
         if self.watershed is None:
             labeled_path = add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff')
@@ -117,54 +116,60 @@ class Segmentation:
 
             print("Watersheding %s" % image_path)
             self.watershed = Watershed_MRF(red, segmented) - 1
-            self.filter_labels()
 
             imsave(labeled_path, self.watershed.astype(np.int16))
 
-        red_props = regionprops(self.watershed, intensity_image=self.red)
-        green_props = regionprops(self.watershed, intensity_image=self.green)
+        watershed_copy = self.watershed.copy()
 
-        c = len(red_props)
+        for crop_size in (64, 100):
+            self.watershed = watershed_copy.copy()
+            print('Processing %dx%d crops' % (crop_size, crop_size))
+            self.filter_labels()  # Will fail badly if reducing crop size
 
-        if not c:
-            print("Skipping empty image %s" % image_path)
-            return
+            red_props = regionprops(self.watershed, intensity_image=self.red)
+            green_props = regionprops(self.watershed, intensity_image=self.green)
 
-        crops_nomask = self.init_crop(cropped_base, 'crop%d_nomask' % crop_size, c)
-        crops_mask = self.init_crop(cropped_base, 'crop%d_masked' % crop_size, c)
-        crops_maskerode = self.init_crop(cropped_base, 'crop%d_maskederode' % crop_size, c)
+            c = len(red_props)
 
-        idx = 0
-        for pred, pgreen in zip(red_props, green_props):
-            x, y = map(int, pred.centroid)
+            if not c:
+                print("Skipping empty image %s" % image_path)
+                return
 
-            mask = self.watershed != pred.label
-            crops_nomask[idx, :, :, :] = self.make_crop(x, y)
-            crops_mask[idx, :, :, :] = self.make_crop(x, y, mask)
-            crops_maskerode[idx, :, :, :] = self.make_crop(x, y, binary_erosion(mask, iterations=3, structure=disk(1)))
+            crops_nomask = self.init_crop(cropped_base, '_crop%d_nomask' % crop_size, c)
+            crops_mask = self.init_crop(cropped_base, '_crop%d_masked' % crop_size, c)
+            crops_maskerode = self.init_crop(cropped_base, '_crop%d_maskederode' % crop_size, c)
 
-            if save_measurements:
-                row_common = (cropped_base.relative_to(output_folder), idx, x, y)
-                for prop, channel in zip((pgreen, pred), (0, 1)):
-                    ch = crops_nomask[idx, channel, :, :]
-                    meas_writer.writerow(
-                        row_common + (channel,
-                                      np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch),
-                                      prop.area) + prop.centroid + prop.bbox + (
-                            prop.bbox_area, prop.eccentricity, prop.extent, prop.major_axis_length, prop.max_intensity,
-                            prop.mean_intensity, prop.min_intensity, prop.minor_axis_length, prop.perimeter,
-                            prop.solidity,
-                            prop.area / prop.perimeter, prop.major_axis_length / prop.minor_axis_length
-                        ))
-            idx += 1
+            idx = 0
+            for pred, pgreen in zip(red_props, green_props):
+                x, y = map(int, pred.centroid)
 
-        crops_nomask.flush()
-        crops_mask.flush()
-        crops_maskerode.flush()
+                mask = self.watershed != pred.label
+                crops_nomask[idx, :, :, :] = self.make_crop(x, y)
+                crops_mask[idx, :, :, :] = self.make_crop(x, y, mask)
+                crops_maskerode[idx, :, :, :] = self.make_crop(x, y, binary_erosion(mask, iterations=3, structure=disk(1)))
 
-        del crops_nomask
-        del crops_mask
-        del crops_maskerode
+                if save_measurements:
+                    row_common = (cropped_base.relative_to(output_folder), idx, x, y, crop_size)
+                    for prop, channel in zip((pgreen, pred), (0, 1)):
+                        ch = crops_nomask[idx, channel, :, :]
+                        meas_writer.writerow(
+                            row_common + (channel,
+                                          np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch),
+                                          prop.area) + prop.centroid + prop.bbox + (
+                                prop.bbox_area, prop.eccentricity, prop.extent, prop.major_axis_length, prop.max_intensity,
+                                prop.mean_intensity, prop.min_intensity, prop.minor_axis_length, prop.perimeter,
+                                prop.solidity,
+                                prop.area / prop.perimeter, prop.major_axis_length / prop.minor_axis_length
+                            ))
+                idx += 1
+
+            crops_nomask.flush()
+            crops_mask.flush()
+            crops_maskerode.flush()
+
+            del crops_nomask
+            del crops_mask
+            del crops_maskerode
 
     @property
     def green(self):
