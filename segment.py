@@ -68,6 +68,12 @@ def Watershed_MRF(Iin, I_MM):
 
 
 def add_name_suffix(path, suffix):
+    """
+    :param path:
+    :param suffix:
+    :return: Ammended path
+    :rtype: pathlib.Path
+    """
     return path.with_name(path.stem + suffix).with_suffix(path.suffix)
 
 
@@ -109,7 +115,7 @@ class Segmentation:
                 print("Found existing segmented watershed %s" % ext_labeled_path)
                 self.watershed = imread(str(ext_labeled_path), plugin='tifffile')
 
-        if self.watershed is None:  # try normal location
+        if self.watershed is None and labeled_path.exists():  # try normal location
             print("Found existing segmented watershed %s" % labeled_path)
             self.watershed = imread(str(labeled_path), plugin='tifffile')
 
