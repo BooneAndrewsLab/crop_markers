@@ -79,6 +79,7 @@ def main():
             internal_cell_id += 1
 
         del crops_map
+        count += 1
 
     log.info("Attaching internal cell indexing column")
     df_map = p.DataFrame(cell_id_map, columns=['idx', 'internal_cell_id'], dtype=int)
