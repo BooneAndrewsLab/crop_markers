@@ -130,9 +130,9 @@ class Segmentation:
             print("Skipping empty image %s" % image_path)
             return
 
-        crops_nomask = self.init_crop(cropped_base, 'crop%d_nomask' % crop_size, c)
-        crops_mask = self.init_crop(cropped_base, 'crop%d_masked' % crop_size, c)
-        crops_maskerode = self.init_crop(cropped_base, 'crop%d_maskederode' % crop_size, c)
+        crops_nomask = self.init_crop(cropped_base, '_crop%d_nomask' % crop_size, c)
+        crops_mask = self.init_crop(cropped_base, '_crop%d_masked' % crop_size, c)
+        crops_maskerode = self.init_crop(cropped_base, '_crop%d_maskederode' % crop_size, c)
 
         idx = 0
         for pred, pgreen in zip(red_props, green_props):
