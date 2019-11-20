@@ -26,14 +26,15 @@ def main():
     log.info("Reading coordinates")
     locs = p.read_csv(args.coordinates)
     half_crop = args.crop_size // 2
+    log.info("Half crop is %d", half_crop)
 
     # Filter border cells
     log.info("Finding border cells, %d pixels from border", half_crop)
     img = imread(str(args.base_folder / locs.loc[0, 'path']), plugin='tifffile')
     dim_y, dim_x = img.shape[-2:]
 
-    good_y = locs.loc[:, 'center_y'].apply(lambda y: (y >= half_crop) & (y <= dim_y - half_crop))
-    good_x = locs.loc[:, 'center_x'].apply(lambda x: (x >= half_crop) & (x <= dim_x - half_crop))
+    good_y = locs.loc[:, 'center_y'].apply(lambda y: (y >= half_crop) & (y < dim_y - half_crop))
+    good_x = locs.loc[:, 'center_x'].apply(lambda x: (x >= half_crop) & (x < dim_x - half_crop))
     mask = good_x & good_y
 
     log.info("Removing %d border cells", (~mask).sum())
