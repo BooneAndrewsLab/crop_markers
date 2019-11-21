@@ -1,4 +1,5 @@
 import logging
+import os
 import pathlib
 
 import numpy as np
@@ -33,12 +34,19 @@ def main():
     args.output_folder.mkdir(exist_ok=True, parents=True)
 
     output_path = args.output_folder / pathlib.Path(args.coordinates.name).name
+    finished_paths = []
     if output_path.exists():
-        os.remove(output_path)
+        old = p.read_csv(output_path)
+        finished_paths = old['path'].unique()
 
     count = 1
     all_images = locs['path'].unique().shape[0]
     for image_path, cell_data in locs.groupby('path'):
+        if image_path in finished_paths:
+            log.info("Skipping %d/%d: %s", count, all_images, image_path)
+            count += 1
+            continue
+
         img = imread(str(args.base_folder / image_path), plugin='tifffile')
 
         dim_y, dim_x = img.shape[-2:]
@@ -50,6 +58,10 @@ def main():
         cell_data = cell_data.loc[mask]
 
         log.info("Processing %d/%d: (%d/%d cells) %s", count, all_images, cell_data.shape[0], all_cells, image_path)
+        if cell_data.empty:
+            log.info("No cells to process, continue")
+            count += 1
+            continue
 
         if args.channels == 1:
             # Mojca is "special"
@@ -83,15 +95,6 @@ def main():
 
         del crops_map
         count += 1
-
-    # log.info("Attaching internal cell indexing column")
-    # df_map = p.DataFrame(cell_id_map, columns=['idx', 'internal_cell_id'], dtype=int)
-    # df_map = df_map.set_index('idx')
-    # locs = locs.join(df_map, how='inner')
-    #
-    # output_path = args.output_folder / pathlib.Path(args.coordinates.name).name
-    # log.info("Saving modified coordinates to %s", output_path)
-    # locs.to_csv(output_path, index=False)
 
     log.info("DONE")
 
