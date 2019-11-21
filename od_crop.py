@@ -47,8 +47,8 @@ def main():
     count = 1
     all_images = locs['path'].unique().shape[0]
     for image_path, cell_data in locs.groupby('path'):
-        log.info("Processing %d/%d", count, all_images)
         img = imread(str(args.base_folder / image_path), plugin='tifffile')
+        log.info("Processing %d/%d: (%r) %s", count, all_images, img.shape, image_path)
 
         if args.channels == 1:
             # Mojca is "special"
