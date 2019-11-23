@@ -1,0 +1,9 @@
+* Base directories
+Nop10-Rad52:	/home/morphology/Morphology/Marker_Project_Screens
+Sac6-Vph1:	/home/morphology/mojca
+
+* Save crops at /home/nilsahin/crops
+
+* Usage for ~/code/crop_markers/od_crop.py
+> source activate crop_markers
+> python ~/code/crop_markers/od_crop.py -f multi /home/matej/Image_paths/Rad52_locations.csv /home/morphology/Morphology/Marker_Project_Screens/ ~/crops
