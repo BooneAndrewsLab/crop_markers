@@ -19,11 +19,10 @@ def main():
     parser.add_argument("base_folder", help="Root folder for images", type=lambda x: pathlib.Path(x))
     parser.add_argument("output_folder", help="Recreate input structure in this folder", type=lambda x: pathlib.Path(x))
     parser.add_argument("-f", "--field", choices=['single', 'multi'], default='single')
-    parser.add_argument("-c", "--channels", default=2)
+    parser.add_argument("-c", "--channels", type=int, default=2)
     parser.add_argument("-s", "--crop-size", help="Size of cropped cells", default=64)
 
     args = parser.parse_args()
-
     log.info("Reading coordinates")
     locs = p.read_csv(args.coordinates)
     half_crop = args.crop_size // 2
@@ -85,8 +84,8 @@ def main():
 
             crops_map[internal_cell_id] = img[
                                           (field * 2):(field * 2) + 2,
-                                          row.center_y - half_crop:row.center_y + half_crop,
-                                          row.center_x - half_crop:row.center_x + half_crop]
+                                          round(row.center_y) - half_crop:round(row.center_y) + half_crop,
+                                          round(row.center_x) - half_crop:round(row.center_x) + half_crop]
 
             cell_data.at[locs_idx, 'internal_cell_id'] = internal_cell_id
             internal_cell_id += 1
