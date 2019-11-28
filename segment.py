@@ -101,8 +101,6 @@ def get_image_measurements(im):
 class Segmentation:
     def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_size=64, ext_label=None,
                  save_measurements=True):
-        self.crop_size = crop_size
-        self.half_crop_size = crop_size // 2
         self.image_path = image_path
         self.img = imread(str(image_path), plugin='tifffile')
         self.watershed = None
@@ -126,11 +124,14 @@ class Segmentation:
             print("Watersheding %s" % image_path)
             self.watershed = Watershed_MRF(red, segmented) - 1
 
-            imsave(labeled_path, self.watershed.astype(np.int16))
+            imsave(str(labeled_path), self.watershed.astype(np.int16))
 
         watershed_copy = self.watershed.copy()
 
         for crop_size in (64, 100):
+            self.half_crop_size = crop_size // 2
+            self.crop_size = crop_size
+
             self.watershed = watershed_copy.copy()
             print('Processing %dx%d crops' % (crop_size, crop_size))
             self.filter_labels()  # Will fail badly if reducing crop size
