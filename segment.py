@@ -99,7 +99,7 @@ def get_image_measurements(im):
 
 
 class Segmentation:
-    def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_size=64, ext_label=None,
+    def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_sizes=(64,), ext_label=None,
                  save_measurements=True):
         self.image_path = image_path
         self.img = imread(str(image_path), plugin='tifffile')
@@ -128,7 +128,7 @@ class Segmentation:
 
         watershed_copy = self.watershed.copy()
 
-        for crop_size in (64, 100):
+        for crop_size in crop_sizes:
             self.half_crop_size = crop_size // 2
             self.crop_size = crop_size
 
@@ -156,17 +156,19 @@ class Segmentation:
                 mask = self.watershed != pred.label
                 crops_nomask[idx, :, :, :] = self.make_crop(x, y)
                 crops_mask[idx, :, :, :] = self.make_crop(x, y, mask)
-                crops_maskerode[idx, :, :, :] = self.make_crop(x, y, binary_erosion(mask, iterations=3, structure=disk(1)))
+                crops_maskerode[idx, :, :, :] = self.make_crop(x, y,
+                                                               binary_erosion(mask, iterations=3, structure=disk(1)))
 
                 if save_measurements:
                     row_common = (cropped_base.relative_to(output_folder), idx, x, y, crop_size)
                     for prop, channel in zip((pgreen, pred), (0, 1)):
-                        ch = crops_nomask[idx, channel, :, :]
+                        ch = crops_nomask[idx, :, :, channel]
                         meas_writer.writerow(
                             row_common + (channel,
                                           np.amin(ch), np.amax(ch), np.mean(ch), np.std(ch), np.var(ch),
                                           prop.area) + prop.centroid + prop.bbox + (
-                                prop.bbox_area, prop.eccentricity, prop.extent, prop.major_axis_length, prop.max_intensity,
+                                prop.bbox_area, prop.eccentricity, prop.extent, prop.major_axis_length,
+                                prop.max_intensity,
                                 prop.mean_intensity, prop.min_intensity, prop.minor_axis_length, prop.perimeter,
                                 prop.solidity,
                                 prop.area / prop.perimeter, prop.major_axis_length / prop.minor_axis_length
@@ -206,11 +208,13 @@ class Segmentation:
             img = self.img.copy()
             img[:, mask] = 0
 
-        return img[:, y - size:y + size, x - size:x + size]
+        crop = img[:, y - size:y + size, x - size:x + size]
+
+        return np.moveaxis(crop, 0, -1)
 
     def init_crop(self, base, suffix, cells):
         return np.memmap(add_name_suffix(base, suffix), dtype=self.img.dtype, mode='w+',
-                         shape=(cells, 2, self.crop_size, self.crop_size))
+                         shape=(cells, self.crop_size, self.crop_size, 2))
 
 
 def main():
@@ -221,7 +225,7 @@ def main():
     parser.add_argument("-m", "--save-masked-crop", help="Save masked cropped cells, background is set to 0")
     parser.add_argument("-M", "--save-mask", help="Save labelled cells")
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
-    parser.add_argument("-s", "--crop-size", help="Size of the cropped cell", default=64, type=int)
+    parser.add_argument("-s", "--crop-sizes", help="Comma delimited sizes of the cropped cells", default='64')
     # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
     parser.add_argument("-l", "--label-path", help="Use existing labeled images")
     parser.add_argument("-n", "--no-measurements", dest='measure', help="Don't save measurements", action='store_false')
@@ -229,6 +233,8 @@ def main():
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
     parser.add_argument("images", nargs="+", help="List of input images")
     args = parser.parse_args()
+
+    crop_sizes = [int(s) for s in args.crop_sizes.split(',')]
 
     images = []
     for im in args.images:
@@ -289,7 +295,7 @@ def main():
 
             print("Processing %s" % image_path)
 
-            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, args.crop_size, ext_labels,
+            seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, crop_sizes, ext_labels,
                                save_measurements=args.measure)
 
             for values in get_image_measurements(seg.img):
