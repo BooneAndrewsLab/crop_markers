@@ -100,7 +100,7 @@ def get_image_measurements(im):
 
 class Segmentation:
     def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_sizes=(64,), ext_label=None,
-                 save_measurements=True):
+                 save_measurements=True, no_crop=False):
         self.image_path = image_path
         self.img = imread(str(image_path), plugin='tifffile')
         self.watershed = None
@@ -128,6 +128,9 @@ class Segmentation:
 
         watershed_copy = self.watershed.copy()
 
+        if no_crop:
+            return
+
         for crop_size in crop_sizes:
             self.half_crop_size = crop_size // 2
             self.crop_size = crop_size
@@ -143,7 +146,7 @@ class Segmentation:
 
             if not c:
                 print("Skipping empty image %s" % image_path)
-                return
+                continue
 
             crops_nomask = self.init_crop(cropped_base, '_crop%d_nomask' % crop_size, c)
             crops_mask = self.init_crop(cropped_base, '_crop%d_masked' % crop_size, c)
@@ -226,6 +229,7 @@ def main():
     parser.add_argument("-M", "--save-mask", help="Save labelled cells")
     parser.add_argument("-r", "--root-folder", help="Set base folder of images; defaults to CWD", default=os.getcwd())
     parser.add_argument("-s", "--crop-sizes", help="Comma delimited sizes of the cropped cells", default='64')
+    parser.add_argument("--no-crop", action='store_true', help="Don't crop")
     # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
     parser.add_argument("-l", "--label-path", help="Use existing labeled images")
     parser.add_argument("-n", "--no-measurements", dest='measure', help="Don't save measurements", action='store_false')
@@ -296,7 +300,7 @@ def main():
             print("Processing %s" % image_path)
 
             seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, crop_sizes, ext_labels,
-                               save_measurements=args.measure)
+                               save_measurements=args.measure, no_crop=args.no_crop)
 
             for values in get_image_measurements(seg.img):
                 # noinspection PyTypeChecker
