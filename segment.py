@@ -115,7 +115,11 @@ class Segmentation:
 
         if self.watershed is None and labeled_path.exists():  # try normal location
             print("Found existing segmented watershed %s" % labeled_path)
-            self.watershed = imread(str(labeled_path), plugin='tifffile')
+            try:
+                self.watershed = imread(str(labeled_path), plugin='tifffile')
+            except ValueError:
+                # Bad tiff, previous run probably failed while saving it
+                print("Ignoring bad watershed image")
 
         if self.watershed is None:
             print("Segmenting %s" % image_path)
