@@ -123,7 +123,7 @@ class Segmentation:
 
         if self.watershed is None:
             print("Segmenting %s" % image_path)
-            segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
+            segmented, _ = segmentation.mixture_model(red) # segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
 
             print("Watersheding %s" % image_path)
             self.watershed = Watershed_MRF(red, segmented) - 1
@@ -249,6 +249,7 @@ def main():
         im = pathlib.Path(im).resolve()
         if im.is_dir():
             images.extend(im.rglob('*.flex'))
+            images.extend(im.rglob('*.tiff'))
         else:
             images.append(im)
 
