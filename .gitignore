@@ -1,3 +1,4 @@
 .idea
 *.ipynb
 my_notes.txt
+__pycache__/

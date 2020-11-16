@@ -10,6 +10,7 @@ import segmentation
 from scipy.ndimage import binary_erosion
 from skimage.io import imread, imsave
 from skimage.measure import regionprops
+from skimage.exposure import adjust_sigmoid, adjust_gamma, equalize_adapthist
 from skimage.morphology import disk
 
 
@@ -100,11 +101,18 @@ def get_image_measurements(im):
 
 class Segmentation:
     def __init__(self, image_path, cropped_base, meas_writer, output_folder, crop_sizes=(64,), ext_label=None,
-                 save_measurements=True, no_crop=False):
+                 save_measurements=True, no_crop=False, adjust_contrast=False, border_remove=False):
         self.image_path = image_path
         self.img = imread(str(image_path), plugin='tifffile')
         self.watershed = None
         red = self.img[1]  # rfp
+
+        if adjust_contrast:
+            print("Adjusting RFP contrast %s" % image_path)
+            red_seg = adjust_sigmoid(red, cutoff=0.25)
+        else:
+            red_seg = red
+
         labeled_path = add_name_suffix(cropped_base, '_labeled').with_suffix('.tiff')
 
         if ext_label:
@@ -123,10 +131,14 @@ class Segmentation:
 
         if self.watershed is None:
             print("Segmenting %s" % image_path)
-            segmented, _ = segmentation.mixture_model(red) # segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
+            segmented, _ = segmentation.mixture_model(red_seg) # segmented, _ = segmentation.mixture_model(segmentation.blur_frame(red))
 
             print("Watersheding %s" % image_path)
-            self.watershed = Watershed_MRF(red, segmented) - 1
+            self.watershed = Watershed_MRF(red_seg, segmented) - 1
+
+            if border_remove:
+                print("Removing cells touching the border")
+                self.watershed = mh.labeled.remove_bordering(self.watershed)
 
             imsave(str(labeled_path), self.watershed.astype(np.int16))
 
@@ -237,7 +249,10 @@ def main():
     # parser.add_argument("-f", "--multi-field-images", action='store_true', help="Images contain multiple fields")
     parser.add_argument("-l", "--label-path", help="Use existing labeled images")
     parser.add_argument("-n", "--no-measurements", dest='measure', help="Don't save measurements", action='store_false')
-
+    parser.add_argument("-a", "--adjust-contrast", action='store_true', help="Adjust image contrast of nuclear channel "
+                                                                             "prior to segmentation by performing "
+                                                                             "Sigmoid Correction")
+    parser.add_argument("-b", "--border-remove", action='store_true', help="Filter out cells touching the border")
     parser.add_argument("output_folder", help="Recreate input structure in this folder")
     parser.add_argument("images", nargs="+", help="List of input images")
     args = parser.parse_args()
@@ -305,7 +320,8 @@ def main():
             print("Processing %s" % image_path)
 
             seg = Segmentation(image_path, cropped_base, crop_meas_writer, output_folder, crop_sizes, ext_labels,
-                               save_measurements=args.measure, no_crop=args.no_crop)
+                               save_measurements=args.measure, no_crop=args.no_crop,
+                               adjust_contrast=args.adjust_contrast, border_remove=args.border_remove)
 
             for values in get_image_measurements(seg.img):
                 # noinspection PyTypeChecker
